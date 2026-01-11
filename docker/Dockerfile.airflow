@@ -1,0 +1,28 @@
+# CI Harvester Airflow Dockerfile
+FROM apache/airflow:2.8.0-python3.11
+
+USER root
+
+# Install additional system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+USER airflow
+
+# Install Python dependencies
+COPY requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir \
+    python-jenkins \
+    requests \
+    lxml \
+    tenacity \
+    ratelimit \
+    structlog
+
+# Copy CI Harvester package
+COPY --chown=airflow:root ci_harvester/ /opt/airflow/ci_harvester/
+
+# Set Python path
+ENV PYTHONPATH="/opt/airflow:${PYTHONPATH}"

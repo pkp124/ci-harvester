@@ -1,0 +1,224 @@
+# CI Harvester - Development Rules for AI Agents
+
+## Project Context
+
+CI Harvester is a data pipeline that scrapes CI/CD job logs and test results, storing them in PostgreSQL. The system uses Apache Airflow for orchestration.
+
+### Architecture Overview
+- **Products** → **Jobs** → **Builds** (hierarchy)
+- **Jobs** → **Tests** (test definitions, persistent across builds)
+- **Builds** → **Test Executions** → **CTest Measurements**
+
+### Technology Stack
+- Python 3.11+
+- PostgreSQL with SQLAlchemy ORM
+- Apache Airflow for workflow orchestration
+- FastAPI for REST API
+- pytest for testing
+
+## Development Principles
+
+### 1. Test-Driven Development (TDD)
+
+**ALWAYS follow TDD when implementing new features or fixing bugs:**
+
+1. **Red**: Write a failing test first that defines expected behavior
+2. **Green**: Write the minimum code to make the test pass
+3. **Refactor**: Clean up the code while keeping tests green
+
+```python
+# Example TDD workflow:
+# 1. First, write the test
+def test_parse_ctest_timeout():
+    parser = CTestXMLParser()
+    xml = b'<Site><Testing><Test Status="timeout">...</Test></Testing></Site>'
+    report = parser.parse(xml)
+    assert report.tests[0].status == TestStatus.TIMEOUT
+
+# 2. Then implement the feature to make it pass
+# 3. Refactor if needed
+```
+
+**Test Requirements:**
+- Unit tests for all new functions/methods
+- Integration tests for database operations
+- Minimum 80% code coverage for new code
+- Tests must be in `tests/` directory mirroring source structure
+
+### 2. Design Documentation
+
+**Before implementing significant features:**
+
+1. Review existing design docs in `docs/design/`
+2. Update design docs if the feature changes architecture
+3. For new components, create a design doc first
+
+**Design docs to review:**
+- `docs/design/DESIGN.md` - Overall architecture
+- `docs/design/DATA_MODEL.md` - Database schema
+- `docs/design/JENKINS_INTEGRATION.md` - Jenkins collector
+- `docs/design/CTEST_PARSER.md` - CTest parsing
+- `docs/design/AIRFLOW_WORKFLOWS.md` - DAG definitions
+- `docs/design/API_DESIGN.md` - REST API
+
+### 3. Code Style
+
+**Follow these conventions:**
+
+```python
+# Use type hints
+def get_builds(job_id: UUID, limit: int = 100) -> List[Build]:
+    ...
+
+# Use dataclasses for data structures
+@dataclass
+class TestResult:
+    name: str
+    status: TestStatus
+    duration_ms: int
+
+# Use descriptive names
+def calculate_test_flakiness_score(test_id: UUID, days: int = 30) -> float:
+    ...
+
+# Document public functions
+def parse_ctest_xml(content: bytes) -> CTestReport:
+    """
+    Parse CTest XML content into structured results.
+    
+    Args:
+        content: Raw XML bytes from CTest output
+        
+    Returns:
+        CTestReport containing parsed test results
+        
+    Raises:
+        ValueError: If XML is invalid or missing required elements
+    """
+```
+
+**Formatting:**
+- Use `black` for code formatting
+- Use `ruff` for linting
+- Maximum line length: 100 characters
+
+### 4. Database Operations
+
+**Follow these patterns:**
+
+```python
+# Always use context managers for sessions
+with get_session() as session:
+    product = session.query(Product).filter_by(name=name).first()
+    
+# Use transactions appropriately
+with get_session() as session:
+    try:
+        session.add(new_build)
+        session.add_all(test_executions)
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+
+# Prefer bulk operations for performance
+session.bulk_insert_mappings(TestExecution, execution_dicts)
+```
+
+### 5. Error Handling
+
+```python
+# Create specific exceptions
+class CTestParseError(Exception):
+    """Failed to parse CTest XML."""
+    pass
+
+# Provide context in errors
+raise CTestParseError(f"Invalid XML at line {line}: {error}")
+
+# Log errors appropriately
+import structlog
+logger = structlog.get_logger()
+
+try:
+    result = collector.get_builds(job_name)
+except ConnectionError as e:
+    logger.error("jenkins_connection_failed", job=job_name, error=str(e))
+    raise
+```
+
+## Data Model Reference
+
+### Key Relationships
+```
+Product (1) ──→ (N) Job (1) ──→ (N) Build (1) ──→ (N) TestExecution
+                    │                                      │
+                    └──→ (N) Test (1) ←────────────────────┘
+                                              
+TestExecution (1) ──→ (N) CTestMeasurement
+```
+
+### Important Fields
+- `tests.full_name`: Unique test identifier within a job (e.g., "Suite::Class::test_method")
+- `test_executions`: Links a Test to a Build with execution results
+- `ctest_measurements`: Stores CTest metrics (Execution Time, Memory, etc.)
+
+## File Structure
+
+```
+ci_harvester/
+├── collectors/      # CI platform collectors (Jenkins, etc.)
+│   └── jenkins.py   # JenkinsCollector class
+├── parsers/         # Test result parsers
+│   └── ctest.py     # CTestXMLParser, CTestJUnitParser
+├── db/              # Database layer
+│   └── models.py    # SQLAlchemy models
+├── api/             # FastAPI REST API
+│   └── v1/          # API version 1 endpoints
+└── utils/           # Shared utilities
+
+tests/               # Mirror source structure
+├── collectors/
+├── parsers/
+└── api/
+
+dags/                # Airflow DAG definitions
+```
+
+## Common Tasks
+
+### Adding a New CI Platform Collector
+1. Create `ci_harvester/collectors/{platform}.py`
+2. Implement `BaseCollector` interface
+3. Register with `@register_collector("{platform}")`
+4. Add tests in `tests/collectors/test_{platform}.py`
+5. Update `docs/design/{PLATFORM}_INTEGRATION.md`
+
+### Adding a New Test Framework Parser
+1. Create parser class implementing `BaseParser`
+2. Implement `can_parse()` and `parse()` methods
+3. Register in `ParserFactory`
+4. Add tests with sample XML fixtures
+5. Update `docs/design/{FRAMEWORK}_PARSER.md`
+
+### Adding a New API Endpoint
+1. Review `docs/design/API_DESIGN.md`
+2. Add Pydantic schemas in `api/schemas.py`
+3. Implement endpoint in appropriate router
+4. Add tests in `tests/api/`
+5. Update API documentation
+
+## Git Workflow
+
+- Create feature branches from `main`
+- Use conventional commits: `feat:`, `fix:`, `docs:`, `test:`, `refactor:`
+- Require passing tests before merge
+- Update relevant documentation with code changes
+
+## Questions to Ask Before Coding
+
+1. Is there an existing design doc for this feature?
+2. What tests need to be written first?
+3. Does this change affect the data model?
+4. Are there existing patterns in the codebase to follow?
+5. Does this require updating API documentation?
