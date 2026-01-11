@@ -13,6 +13,7 @@ CI Harvester is designed to:
 ## Documentation
 
 ### Getting Started
+- [Deployment Guide](docs/DEPLOYMENT.md) - Docker Compose and Kubernetes deployment
 - [Development Guide](docs/DEVELOPMENT.md) - Setup, workflow, and debugging
 - [Contributing](CONTRIBUTING.md) - Contribution guidelines and TDD practices
 
@@ -32,26 +33,63 @@ CI Harvester is designed to:
 
 ## Quick Start
 
+### Using Docker Compose (Recommended)
+
 ```bash
 # Clone the repository
 git clone <repository-url>
 cd ci-harvester
 
+# Configure
+cp config/ci_harvester.yaml.example config/ci_harvester.yaml
+# Edit config/ci_harvester.yaml with your Jenkins URL and job patterns
+
+# Start all services
+docker-compose -f docker/docker-compose.yml up -d
+
+# Add Jenkins credentials to Airflow
+docker-compose -f docker/docker-compose.yml exec airflow-webserver \
+  airflow connections add jenkins_main \
+    --conn-type http \
+    --conn-host your-jenkins.com \
+    --conn-port 443 \
+    --conn-schema https \
+    --conn-login your-user \
+    --conn-password "your-api-token"
+
+# Bootstrap configuration
+docker-compose -f docker/docker-compose.yml exec api \
+  python -m ci_harvester.config.bootstrap
+
+# Enable DAGs
+docker-compose -f docker/docker-compose.yml exec airflow-webserver \
+  airflow dags unpause discover_jobs collect_builds
+
+# Access UIs
+# Airflow: http://localhost:8080 (admin/admin)
+# API: http://localhost:8000/docs
+```
+
+### Manual Setup
+
+```bash
 # Set up Python environment
 python -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 
-# Configure environment
+# Configure
 cp .env.example .env
-# Edit .env with your settings
+cp config/ci_harvester.yaml.example config/ci_harvester.yaml
 
 # Initialize database
-python -m ci_harvester.db.init
+python -m ci_harvester.config.bootstrap --create-tables
 
 # Start Airflow (development)
 airflow standalone
 ```
+
+See [Deployment Guide](docs/DEPLOYMENT.md) for detailed instructions.
 
 ## Project Structure
 
