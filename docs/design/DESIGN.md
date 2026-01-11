@@ -25,6 +25,8 @@ CI Harvester is a data pipeline system that collects, parses, and stores CI/CD b
 
 ## 3. Architecture Overview
 
+### 3.1 System Architecture
+
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                              CI Harvester System                            │
@@ -52,9 +54,6 @@ CI Harvester is a data pipeline system that collects, parses, and stores CI/CD b
 │                                                ▼                           │
 │                      ┌─────────────────────────────────────────────────┐   │
 │                      │                  PostgreSQL                      │   │
-│                      │  ┌──────────┐ ┌──────────┐ ┌────────────────┐   │   │
-│                      │  │  Builds  │ │   Logs   │ │  Test Results  │   │   │
-│                      │  └──────────┘ └──────────┘ └────────────────┘   │   │
 │                      └─────────────────────────────────────────────────┘   │
 │                                                │                           │
 │                                                ▼                           │
@@ -64,6 +63,48 @@ CI Harvester is a data pipeline system that collects, parses, and stores CI/CD b
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
+
+### 3.2 Data Model Hierarchy
+
+```
+┌─────────────────┐
+│    Products     │  Top-level grouping (e.g., software products)
+└────────┬────────┘
+         │ 1:N
+         ▼
+┌─────────────────┐
+│      Jobs       │  CI jobs belonging to a product
+└────────┬────────┘
+         │
+    ┌────┴────┐
+    │         │
+    │ 1:N     │ 1:N
+    ▼         ▼
+┌────────┐ ┌────────┐
+│ Builds │ │ Tests  │  Test definitions (persistent across builds)
+└───┬────┘ └───┬────┘
+    │          │
+    │ 1:N      │
+    ▼          │
+┌────────────────────┐
+│  Test Executions   │◄─────────────────────┘ N:1
+└─────────┬──────────┘  Execution of a test in a specific build
+          │
+          │ 1:N
+          ▼
+┌─────────────────────┐
+│  CTest Measurements │  Measurements captured during execution
+└─────────────────────┘
+```
+
+**Key Concepts:**
+
+- **Products**: Group related CI jobs (e.g., "MyProduct", "Platform Libraries")
+- **Jobs**: CI pipelines belonging to a product, with CI source info (Jenkins, etc.)
+- **Tests**: Test definitions discovered from jobs, persistent across builds
+- **Builds**: Individual runs of a job
+- **Test Executions**: Execution of a test within a specific build
+- **CTest Measurements**: Metrics from CTest (execution time, memory, etc.)
 
 ## 4. Component Design
 
