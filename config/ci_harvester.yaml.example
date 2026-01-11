@@ -1,0 +1,164 @@
+# CI Harvester Configuration
+# Copy to /etc/ci-harvester/config.yaml or set CI_HARVESTER_CONFIG env var
+
+# =============================================================================
+# CI Sources
+# Define Jenkins servers (or other CI platforms) to connect to
+# =============================================================================
+ci_sources:
+  - name: jenkins-main
+    type: jenkins
+    url: https://jenkins.example.com
+    
+    # Reference to Airflow Connection ID (stores credentials)
+    # Create with: airflow connections add jenkins_main --conn-type http ...
+    connection_id: jenkins_main
+    
+    # Job discovery settings
+    discovery:
+      # Include jobs matching these regex patterns
+      include_patterns:
+        - ".*"  # All jobs (default)
+        # Examples:
+        # - ".*-build$"      # Jobs ending in -build
+        # - ".*-test$"       # Jobs ending in -test
+        # - "^release/.*"    # Jobs in release folder
+      
+      # Exclude jobs matching these patterns (checked first)
+      exclude_patterns:
+        - ".*-experimental$"
+        - "^sandbox/.*"
+        - "^test/.*"
+      
+      # How deep to search in Jenkins folders
+      folder_depth: 3
+    
+    # Default settings for jobs from this source
+    defaults:
+      collect_logs: true
+      max_log_size_mb: 50
+      
+      # Artifact patterns to identify test results
+      artifact_patterns:
+        - "**/Test.xml"
+        - "**/test-results.xml"
+        - "**/Testing/**/Test.xml"
+
+  # Example: Add a second Jenkins server
+  # - name: jenkins-legacy
+  #   type: jenkins
+  #   url: https://old-jenkins.example.com
+  #   connection_id: jenkins_legacy
+  #   discovery:
+  #     include_patterns:
+  #       - "^legacy/.*"
+  #   defaults:
+  #     collect_logs: false  # Don't collect logs from legacy
+
+# =============================================================================
+# Products
+# Group related CI jobs into products
+# =============================================================================
+products:
+  - name: MyProduct
+    description: Main product build and test pipelines
+    repository_url: https://github.com/myorg/myproduct
+    
+    # Associate jobs with this product
+    jobs:
+      # Match by pattern (regex)
+      - pattern: "myproduct-.*"
+        source: jenkins-main
+      
+      # Match by exact name with custom settings
+      - name: "myproduct-linux-build"
+        source: jenkins-main
+        settings:
+          priority: high  # Collect this job first
+          
+      - name: "myproduct-windows-build"
+        source: jenkins-main
+        settings:
+          priority: high
+          # Windows builds use different test output path
+          artifact_patterns:
+            - "**/TestResults/*.xml"
+            - "**/test-results.xml"
+      
+      # Nightly tests - lower priority
+      - name: "myproduct-nightly-integration"
+        source: jenkins-main
+        settings:
+          priority: low
+          max_builds_per_collection: 5
+    
+    # Product-level settings (apply to all jobs in product)
+    settings:
+      priority: normal
+      collect_logs: true
+      max_builds_per_collection: 30
+
+  - name: Platform
+    description: Platform and shared libraries
+    jobs:
+      - pattern: "platform-.*"
+        source: jenkins-main
+      - pattern: "^libs/.*"
+        source: jenkins-main
+    settings:
+      priority: normal
+
+  - name: Tools
+    description: Internal tools (lower priority)
+    jobs:
+      - pattern: "tools-.*"
+        source: jenkins-main
+    settings:
+      priority: low
+      collect_logs: false  # Don't need logs for tools
+
+# =============================================================================
+# Global Settings
+# =============================================================================
+settings:
+  # Default artifact patterns for test results (CTest, JUnit, etc.)
+  test_artifact_patterns:
+    - "**/Test.xml"
+    - "**/test-results.xml"
+    - "**/junit*.xml"
+    - "**/TEST-*.xml"
+    - "**/*_test_results.xml"
+    - "**/surefire-reports/*.xml"
+  
+  # CTest-specific patterns
+  ctest_patterns:
+    - "**/Testing/**/Test.xml"
+    - "**/Testing/Temporary/LastTest.log"
+  
+  # Log collection settings
+  logs:
+    enabled: true
+    max_size_mb: 50
+    # Logs larger than this are truncated (not skipped)
+    truncate_at_mb: 100
+  
+  # Collection defaults
+  collection:
+    max_builds_per_job: 20
+    timeout_seconds: 300
+  
+  # Data retention (days)
+  retention:
+    test_results_days: 365
+    build_logs_days: 90
+    builds_days: 730
+
+# =============================================================================
+# Airflow Variables Reference
+# These are set in Airflow, not here. Documented for reference.
+# =============================================================================
+# airflow variables set collection_schedule "*/5 * * * *"
+# airflow variables set discovery_schedule "*/10 * * * *"  
+# airflow variables set max_jobs_per_run 50
+# airflow variables set max_builds_per_job 20
+# airflow variables set jenkins_rate_limit 100

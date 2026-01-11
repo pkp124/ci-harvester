@@ -30,6 +30,67 @@ def utcnow():
 
 
 # =============================================================================
+# CI Sources
+# =============================================================================
+
+class CISource(Base):
+    """CI platform instance (e.g., Jenkins server)."""
+    __tablename__ = 'ci_sources'
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name = Column(String(255), nullable=False, unique=True)
+    type = Column(String(50), nullable=False)  # 'jenkins', 'github_actions'
+    url = Column(String(2048), nullable=False)
+    connection_id = Column(String(255))  # Airflow Connection ID
+    
+    # Configuration as JSONB for flexibility
+    config = Column(JSONB, nullable=False, default=dict)
+    # {
+    #   "discovery": {"include_patterns": [...], "exclude_patterns": [...], "folder_depth": 3},
+    #   "defaults": {"collect_logs": true, "max_log_size_mb": 50, "artifact_patterns": [...]}
+    # }
+    
+    is_active = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
+    updated_at = Column(DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow)
+    
+    # Relationships
+    jobs = relationship("Job", back_populates="source", cascade="all, delete-orphan")
+    
+    __table_args__ = (
+        Index('idx_ci_sources_name', 'name'),
+        Index('idx_ci_sources_type', 'type'),
+        Index('idx_ci_sources_active', 'is_active', postgresql_where='is_active = true'),
+    )
+    
+    def get_discovery_config(self) -> Dict[str, Any]:
+        """Get discovery configuration."""
+        return self.config.get('discovery', {
+            'include_patterns': ['.*'],
+            'exclude_patterns': [],
+            'folder_depth': 3
+        })
+    
+    def get_default_settings(self) -> Dict[str, Any]:
+        """Get default settings for jobs from this source."""
+        return self.config.get('defaults', {
+            'collect_logs': True,
+            'max_log_size_mb': 50,
+            'artifact_patterns': []
+        })
+    
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            'id': str(self.id),
+            'name': self.name,
+            'type': self.type,
+            'url': self.url,
+            'is_active': self.is_active,
+            'config': self.config,
+        }
+
+
+# =============================================================================
 # Products
 # =============================================================================
 
@@ -41,6 +102,14 @@ class Product(Base):
     name = Column(String(255), nullable=False, unique=True)
     description = Column(Text)
     repository_url = Column(String(2048))
+    
+    # Configuration as JSONB
+    config = Column(JSONB, nullable=False, default=dict)
+    # {
+    #   "job_patterns": [{"pattern": "myproduct-.*", "source": "jenkins-main"}],
+    #   "settings": {"priority": "high", "collect_logs": true}
+    # }
+    
     metadata = Column(JSONB, nullable=False, default=dict)
     is_active = Column(Boolean, nullable=False, default=True)
     created_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
@@ -54,6 +123,16 @@ class Product(Base):
         Index('idx_products_active', 'is_active', postgresql_where='is_active = true'),
     )
     
+    def get_settings(self) -> Dict[str, Any]:
+        """Get product settings with defaults."""
+        defaults = {
+            'priority': 'normal',
+            'collect_logs': True,
+            'max_builds_per_collection': 20,
+        }
+        defaults.update(self.config.get('settings', {}))
+        return defaults
+    
     def to_dict(self) -> Dict[str, Any]:
         return {
             'id': str(self.id),
@@ -61,6 +140,7 @@ class Product(Base):
             'description': self.description,
             'repository_url': self.repository_url,
             'is_active': self.is_active,
+            'config': self.config,
             'created_at': self.created_at.isoformat() if self.created_at else None,
         }
 
@@ -75,12 +155,22 @@ class Job(Base):
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     product_id = Column(UUID(as_uuid=True), ForeignKey('products.id', ondelete='CASCADE'), nullable=False)
+    source_id = Column(UUID(as_uuid=True), ForeignKey('ci_sources.id', ondelete='CASCADE'))
     external_id = Column(String(1024), nullable=False)  # CI platform job identifier
     name = Column(String(1024), nullable=False)
     url = Column(String(2048))
-    ci_source = Column(String(50), nullable=False)  # 'jenkins', 'github_actions', etc.
-    ci_source_url = Column(String(2048))  # Base URL of CI server
     description = Column(Text)
+    
+    # Job-specific configuration
+    config = Column(JSONB, nullable=False, default=dict)
+    # {
+    #   "enabled": true,
+    #   "priority": "normal",
+    #   "collect_logs": true,
+    #   "artifact_patterns": ["**/Test.xml"],
+    #   "collection_interval_minutes": 5
+    # }
+    
     is_active = Column(Boolean, nullable=False, default=True)
     metadata = Column(JSONB, nullable=False, default=dict)
     created_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
@@ -89,27 +179,58 @@ class Job(Base):
     
     # Relationships
     product = relationship("Product", back_populates="jobs")
+    source = relationship("CISource", back_populates="jobs")
     builds = relationship("Build", back_populates="job", cascade="all, delete-orphan")
     tests = relationship("Test", back_populates="job", cascade="all, delete-orphan")
     
     __table_args__ = (
-        UniqueConstraint('product_id', 'external_id', name='uq_jobs_product_external'),
+        UniqueConstraint('source_id', 'external_id', name='uq_jobs_source_external'),
         Index('idx_jobs_product', 'product_id'),
-        Index('idx_jobs_ci_source', 'ci_source'),
+        Index('idx_jobs_source', 'source_id'),
         Index('idx_jobs_active', 'is_active', postgresql_where='is_active = true'),
         Index('idx_jobs_last_collected', 'last_collected'),
     )
+    
+    @property
+    def ci_source(self) -> Optional[str]:
+        """Get CI source name for backwards compatibility."""
+        return self.source.name if self.source else None
+    
+    def get_settings(self) -> Dict[str, Any]:
+        """Get merged settings (job -> product -> source -> defaults)."""
+        settings = {
+            'enabled': True,
+            'priority': 'normal',
+            'collect_logs': True,
+            'max_log_size_mb': 50,
+            'artifact_patterns': [],
+        }
+        
+        # Apply source defaults
+        if self.source:
+            settings.update(self.source.get_default_settings())
+        
+        # Apply product settings
+        if self.product:
+            settings.update(self.product.get_settings())
+        
+        # Apply job-specific settings
+        settings.update(self.config)
+        
+        return settings
     
     def to_dict(self) -> Dict[str, Any]:
         return {
             'id': str(self.id),
             'product_id': str(self.product_id),
             'product_name': self.product.name if self.product else None,
+            'source_id': str(self.source_id) if self.source_id else None,
+            'source_name': self.source.name if self.source else None,
             'external_id': self.external_id,
             'name': self.name,
             'url': self.url,
-            'ci_source': self.ci_source,
             'is_active': self.is_active,
+            'config': self.config,
             'last_collected': self.last_collected.isoformat() if self.last_collected else None,
         }
 
