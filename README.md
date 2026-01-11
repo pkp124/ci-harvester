@@ -12,12 +12,21 @@ CI Harvester is designed to:
 
 ## Documentation
 
+### Getting Started
+- [Development Guide](docs/DEVELOPMENT.md) - Setup, workflow, and debugging
+- [Contributing](CONTRIBUTING.md) - Contribution guidelines and TDD practices
+
+### Design Documents
 - [Design Document](docs/design/DESIGN.md) - High-level architecture and design decisions
 - [Data Model](docs/design/DATA_MODEL.md) - PostgreSQL schema and data structures
 - [Jenkins Integration](docs/design/JENKINS_INTEGRATION.md) - Jenkins API integration details
 - [CTest Parser](docs/design/CTEST_PARSER.md) - CTest XML result parsing
 - [Airflow Workflows](docs/design/AIRFLOW_WORKFLOWS.md) - DAG definitions and scheduling
 - [API Design](docs/design/API_DESIGN.md) - REST API for querying harvested data
+
+### For AI Agents
+- [Agent Guidelines](AGENTS.md) - Context and rules for AI coding assistants
+- [Cursor Rules](.cursorrules) - Development rules for Cursor AI
 
 ## Quick Start
 
