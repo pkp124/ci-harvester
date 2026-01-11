@@ -4,6 +4,15 @@
 
 This document describes the Apache Airflow DAGs (Directed Acyclic Graphs) that orchestrate the CI Harvester data collection workflows. Airflow provides scheduling, monitoring, retry logic, and dependency management for the harvesting pipelines.
 
+**Key Principle**: Airflow handles all scheduling. Configuration (what to collect, limits, patterns) is managed via:
+- Airflow Variables (schedules, limits)
+- YAML config file (sources, products, patterns)
+- Database (runtime job settings)
+
+See also:
+- `docs/design/SCHEDULING_POLICY.md` - Scheduling configuration
+- `docs/design/CONFIGURATION.md` - Configuration system
+
 ## 2. Why Airflow
 
 ### 2.1 Key Benefits

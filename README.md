@@ -19,6 +19,8 @@ CI Harvester is designed to:
 ### Design Documents
 - [Design Document](docs/design/DESIGN.md) - High-level architecture and design decisions
 - [Data Model](docs/design/DATA_MODEL.md) - PostgreSQL schema and data structures
+- [Configuration](docs/design/CONFIGURATION.md) - CI sources, products, job mappings
+- [Scheduling Policy](docs/design/SCHEDULING_POLICY.md) - Collection schedules and priorities
 - [Jenkins Integration](docs/design/JENKINS_INTEGRATION.md) - Jenkins API integration details
 - [CTest Parser](docs/design/CTEST_PARSER.md) - CTest XML result parsing
 - [Airflow Workflows](docs/design/AIRFLOW_WORKFLOWS.md) - DAG definitions and scheduling
